@@ -403,39 +403,6 @@ class CloudComposerExternalTaskSensor(BaseSensorOperator):
                 "Duplicate values provided across allowed_states, skipped_states and failed_states."
             )
 
-        if composer_external_task_id is not None and composer_external_task_ids is not None:
-            raise ValueError(
-                "Only one of `composer_external_task_id` or `composer_external_task_ids` may "
-                "be provided to CloudComposerExternalTaskSensor; "
-                "use `composer_external_task_id` or `composer_external_task_ids` or `composer_external_task_group_id`."
-            )
-
-        if composer_external_task_group_id is not None and (
-            composer_external_task_id is not None or composer_external_task_ids is not None
-        ):
-            raise ValueError(
-                "Only one of `composer_external_task_group_id` or `composer_external_task_ids` may "
-                "be provided to CloudComposerExternalTaskSensor; "
-                "use `composer_external_task_id` or `composer_external_task_ids` or `composer_external_task_group_id`."
-            )
-
-        if (
-            composer_external_task_id is not None
-            or composer_external_task_ids is not None
-            or composer_external_task_group_id is not None
-        ):
-            if not total_states <= set(State.task_states):
-                raise ValueError(
-                    "Valid values for `allowed_states`, `skipped_states` and `failed_states` "
-                    "when `composer_external_task_id` or `composer_external_task_ids` or `composer_external_task_group_id` "
-                    f"is not `None`: {State.task_states}"
-                )
-        elif not total_states <= set(State.dag_states):
-            raise ValueError(
-                "Valid values for `allowed_states`, `skipped_states` and `failed_states` "
-                f"when `composer_external_task_id` and `composer_external_task_group_id` is `None`: {State.dag_states}"
-            )
-
         self.execution_range = execution_range
         self.composer_external_dag_id = composer_external_dag_id
         self.composer_external_task_id = composer_external_task_id
@@ -465,10 +432,49 @@ class CloudComposerExternalTaskSensor(BaseSensorOperator):
         return logical_date - timedelta(1), logical_date
 
     def _normalize_external_task_ids(self) -> None:
+        """
+        Normalize ids and validate target type after templates have been rendered.
+
+        Empty ``composer_external_task_ids=[]`` is treated as unset, matching the old
+        constructor: it must not trip exclusivity with ``task_group_id``, and it uses
+        Dag-state rather than task-state validation.
+        """
         if not self.composer_external_task_ids:
             self.composer_external_task_ids = None
-        if self.composer_external_task_id is not None and self.composer_external_task_ids is None:
+        elif isinstance(self.composer_external_task_ids, str):
+            self.composer_external_task_ids = [self.composer_external_task_ids]
+
+        if self.composer_external_task_id is not None and self.composer_external_task_ids is not None:
+            if list(self.composer_external_task_ids) != [self.composer_external_task_id]:
+                raise ValueError(
+                    "Only one of `composer_external_task_id` or `composer_external_task_ids` may "
+                    "be provided to CloudComposerExternalTaskSensor; "
+                    "use `composer_external_task_id` or `composer_external_task_ids` or `composer_external_task_group_id`."
+                )
+        elif self.composer_external_task_id is not None:
             self.composer_external_task_ids = [self.composer_external_task_id]
+
+        if self.composer_external_task_group_id is not None and self.composer_external_task_ids is not None:
+            raise ValueError(
+                "Only one of `composer_external_task_group_id` or `composer_external_task_ids` may "
+                "be provided to CloudComposerExternalTaskSensor; "
+                "use `composer_external_task_id` or `composer_external_task_ids` or `composer_external_task_group_id`."
+            )
+
+        total_states = set(self.allowed_states + self.skipped_states + self.failed_states)
+        if self.composer_external_task_ids or self.composer_external_task_group_id:
+            if not total_states <= set(State.task_states):
+                raise ValueError(
+                    "Valid values for `allowed_states`, `skipped_states` and `failed_states` "
+                    "when `composer_external_task_id` or `composer_external_task_ids` or "
+                    f"`composer_external_task_group_id` is not `None`: {State.task_states}"
+                )
+        elif not total_states <= set(State.dag_states):
+            raise ValueError(
+                "Valid values for `allowed_states`, `skipped_states` and `failed_states` "
+                f"when `composer_external_task_id` and `composer_external_task_group_id` is `None`: "
+                f"{State.dag_states}"
+            )
 
     def poke(self, context: Context) -> bool:
         self._normalize_external_task_ids()
@@ -635,8 +641,8 @@ class CloudComposerExternalTaskSensor(BaseSensorOperator):
             )
 
     def execute(self, context: Context) -> None:
-        self._composer_airflow_version = self._get_composer_airflow_version()
         self._normalize_external_task_ids()
+        self._composer_airflow_version = self._get_composer_airflow_version()
 
         if self.composer_external_task_ids and len(self.composer_external_task_ids) > len(
             set(self.composer_external_task_ids)
