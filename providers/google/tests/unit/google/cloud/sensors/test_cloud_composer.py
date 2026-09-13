@@ -350,3 +350,70 @@ class TestCloudComposerExternalTaskSensor:
         task._composer_airflow_version = composer_airflow_version
 
         assert not task.poke(context={"logical_date": datetime(2024, 5, 23, 0, 0, 0)})
+
+    def test_init_does_not_wrap_task_id_into_task_ids(self):
+        task = CloudComposerExternalTaskSensor(
+            task_id="task-id",
+            project_id=TEST_PROJECT_ID,
+            region=TEST_REGION,
+            environment_id=TEST_ENVIRONMENT_ID,
+            composer_external_dag_id="test_dag_id",
+            composer_external_task_id=TEST_COMPOSER_EXTERNAL_TASK_ID,
+        )
+
+        assert task.composer_external_task_id == TEST_COMPOSER_EXTERNAL_TASK_ID
+        assert task.composer_external_task_ids is None
+
+    @mock.patch("airflow.providers.google.cloud.sensors.cloud_composer.CloudComposerHook")
+    def test_poke_wraps_task_id_into_task_ids(self, mock_hook):
+        mock_hook.return_value.get_task_instances.return_value = TEST_GET_TASK_INSTANCES_RESULT(
+            "success",
+            "logical_date",
+            TEST_COMPOSER_EXTERNAL_TASK_ID,
+        )
+        task = CloudComposerExternalTaskSensor(
+            task_id="task-id",
+            project_id=TEST_PROJECT_ID,
+            region=TEST_REGION,
+            environment_id=TEST_ENVIRONMENT_ID,
+            composer_external_dag_id="test_dag_id",
+            composer_external_task_id=TEST_COMPOSER_EXTERNAL_TASK_ID,
+            allowed_states=["success"],
+        )
+        task._composer_airflow_version = 3
+
+        assert task.poke(context={"logical_date": datetime(2024, 5, 23, 0, 0, 0)})
+        assert task.composer_external_task_ids == [TEST_COMPOSER_EXTERNAL_TASK_ID]
+
+    def test_init_keeps_empty_task_ids_until_poke(self):
+        task = CloudComposerExternalTaskSensor(
+            task_id="task-id",
+            project_id=TEST_PROJECT_ID,
+            region=TEST_REGION,
+            environment_id=TEST_ENVIRONMENT_ID,
+            composer_external_dag_id="test_dag_id",
+            composer_external_task_ids=[],
+        )
+
+        assert task.composer_external_task_ids == []
+
+    @mock.patch("airflow.providers.google.cloud.sensors.cloud_composer.CloudComposerHook")
+    def test_poke_treats_empty_task_ids_as_unset(self, mock_hook):
+        mock_hook.return_value.get_task_instances.return_value = TEST_GET_TASK_INSTANCES_RESULT(
+            "success",
+            "logical_date",
+            TEST_COMPOSER_EXTERNAL_TASK_ID,
+        )
+        task = CloudComposerExternalTaskSensor(
+            task_id="task-id",
+            project_id=TEST_PROJECT_ID,
+            region=TEST_REGION,
+            environment_id=TEST_ENVIRONMENT_ID,
+            composer_external_dag_id="test_dag_id",
+            composer_external_task_ids=[],
+            allowed_states=["success"],
+        )
+        task._composer_airflow_version = 3
+
+        task.poke(context={"logical_date": datetime(2024, 5, 23, 0, 0, 0)})
+        assert task.composer_external_task_ids is None
