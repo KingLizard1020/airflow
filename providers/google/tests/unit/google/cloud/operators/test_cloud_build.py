@@ -161,6 +161,8 @@ class TestCloudBuildOperator:
             operator = CloudBuildCreateBuildOperator(
                 build=f.name, task_id="task-id", params={"name": "airflow"}
             )
+            assert operator.build == f.name
+            assert not hasattr(operator, "build_raw")
             operator.prepare_template()
             expected_body = {"steps": [{"name": "ubuntu", "args": ["echo", "Hello {{ params.name }}!"]}]}
             assert expected_body == operator.build
@@ -529,6 +531,8 @@ def test_async_load_templated_should_execute_successfully(file_type, file_conten
             params={"name": "airflow"},
             deferrable=True,
         )
+        assert operator.build == f.name
+        assert not hasattr(operator, "build_raw")
         operator.prepare_template()
         expected_body = {"steps": [{"name": "ubuntu", "args": ["echo", "Hello {{ params.name }}!"]}]}
         assert expected_body == operator.build
